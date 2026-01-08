@@ -1,16 +1,16 @@
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from scipy.stats import ttest_ind
 from scipy.stats import norm
 from scipy import stats
+from scipy.stats import ttest_ind, mannwhitneyu
 
 
 def get_response_time(web_logs, begin_date, end_date) -> pd.DataFrame:
     """
     Возвращает load_time пользователей за указанный период:
-    типа begin_date = date(2022, 4, 1)
-         end_date   = date(2022, 4, 12) 
+    типа begin_date = pd.to_datetime("23.03.2022", dayfirst=True).date()
+         end_date   = pd.to_datetime("30.03.2022", dayfirst=True).date()
     """
     mask = (web_logs["date"].dt.date >= begin_date) & (web_logs["date"].dt.date < end_date)
     result = web_logs.loc[mask, ["date", "user_id", "load_time"]]
@@ -31,8 +31,7 @@ def get_revenue_web(sales, web_logs, begin_date, end_date) -> pd.DataFrame:
     revenue = (
         sales_period
         .groupby("user_id", as_index=False)["price"].sum()
-        .rename(columns ={"price": "total_revenue_web"})
-    )
+        .rename(columns ={"price": "total_revenue_web"}))
 
     result = pd.DataFrame({"user_id": users}) \
         .merge(revenue, on="user_id", how="left") \
@@ -56,8 +55,8 @@ def get_revenue_all(sales, web_logs, begin_date, end_date) -> pd.DataFrame:
         .groupby("user_id", as_index=False)["price"]
         .sum()
         .rename(columns={"price": "total_revenue"})
-        .reset_index()
-    )
+        .reset_index())
+    
     result = pd.DataFrame({"user_id": users}) \
         .merge(revenue, on="user_id", how="left") \
         .fillna(0)
@@ -67,8 +66,8 @@ def get_revenue_all(sales, web_logs, begin_date, end_date) -> pd.DataFrame:
 def get_data_subset(df, begin_date, end_date, user_ids=None, columns=None) -> pd.DataFrame:
     """
     Возвращает подмножество данных, необходимых для выполнения тестирования
-    begin_date = date(2022, 4, 1)
-    end_date   = date(2022, 4, 12) 
+    begin_date = pd.to_datetime("23.03.2022", dayfirst=True).date()
+    end_date   = pd.to_datetime("30.03.2022", dayfirst=True).date()
     """
     df_res = df.copy()
 
@@ -116,11 +115,11 @@ def build_experiment_metrics(users, sales, web_logs, begin_date, end_date) -> pd
     Собирает таблицу уровня user_id для анализа эксперимента:
     user_id, pilot, total_revenue, total_revenue_web, orders_cnt, avg_load_time
     """
-    # Метрики за период эксперимента!
+    # Метрики за период эксперимента:
     rev_all = get_revenue_all(sales, web_logs, begin_date, end_date)     # основная метрика  
-    rev_web = get_revenue_web(sales, web_logs, begin_date, end_date)      # вспомогательная метрика   
-    orders  = get_orders_per_user(sales, begin_date, end_date)            # вспомогательная метрика
-    load    = get_avg_load_time_per_user(web_logs, begin_date, end_date)   # контрольная метрика
+    rev_web = get_revenue_web(sales, web_logs, begin_date, end_date)     # вспомогательная метрика   
+    orders = get_orders_per_user(sales, begin_date, end_date)            # вспомогательная метрика
+    load = get_avg_load_time_per_user(web_logs, begin_date, end_date)   # контрольная метрика
 
     df = users[["user_id", "pilot"]].copy()
 
@@ -164,7 +163,7 @@ def build_covariates_for_users(users, sales, web_logs, exp_begin, exp_end, cov_d
 
     for d in cov_days:
         cov_begin = (pd.to_datetime(exp_begin) - pd.Timedelta(days=d)).date()
-        cov_end   = pd.to_datetime(exp_begin).date()
+        cov_end = pd.to_datetime(exp_begin).date()
 
         cov_df = get_revenue_all(sales, web_logs, cov_begin, cov_end)[["user_id", "total_revenue"]].copy()
         cov_df = cov_df.rename(columns={"total_revenue": f"cov_{d}d"})
@@ -181,17 +180,17 @@ def cuped_pvalue(df, metric_col, cov_col, group_col="pilot"):
     df2 = df[[group_col, metric_col, cov_col]].dropna()
 
     control = df2[df2[group_col] == 0]
-    pilot   = df2[df2[group_col] == 1]
+    pilot = df2[df2[group_col] == 1]
 
     theta = calculate_theta(
         control[metric_col].reset_index(drop=True),
         pilot[metric_col].reset_index(drop=True),
         control[cov_col].reset_index(drop=True),
         pilot[cov_col].reset_index(drop=True),
-    )
+        )
 
     m_c = control[metric_col] - theta * control[cov_col]
-    m_p = pilot[metric_col]   - theta * pilot[cov_col]
+    m_p = pilot[metric_col] - theta * pilot[cov_col]
 
     return ttest_pvalue(m_c, m_p)
 
@@ -319,18 +318,13 @@ def plot_metric_hist(s: pd.Series, title: str, log1p=False):
 def get_mde(std, sample_size_per_group, alpha=0.05, beta=0.2, two_sided=True):
     alpha_eff = alpha / 2 if two_sided else alpha
     z_alpha = norm.ppf(1 - alpha_eff)
-    z_beta  = norm.ppf(1 - beta)
+    z_beta = norm.ppf(1 - beta)
     mde = (z_alpha + z_beta) * (np.sqrt(2) * std) / np.sqrt(sample_size_per_group)
     return float(mde)
 
 def check_ttest(a, b, alpha=0.05):
     _, p = ttest_ind(a, b, equal_var=False)
     return p < alpha
-
-import numpy as np
-import pandas as pd
-from scipy.stats import ttest_ind, mannwhitneyu
-
 
 def run_experiment_pvalues(
     baseline: pd.Series,
@@ -342,8 +336,7 @@ def run_experiment_pvalues(
     test: str = "ttest",              # "ttest" | "mannwhitney"
     alternative: str = "two-sided",   # для mannwhitney: "two-sided", "less", "greater"
     seed: int = 42,
-    return_pvalues: bool = True
-):
+    return_pvalues: bool = True):
     x = baseline.dropna().to_numpy()
 
     if transform == "log1p":
